@@ -247,9 +247,7 @@ class _DataFrame(BasePandasDataset):
     def drop_duplicates(
         self, subset=None, keep="first", inplace=False, ignore_index=False
     ):
-        return super(DataFrame, self).drop_duplicates(
-            subset=subset, keep=keep, inplace=inplace
-        )
+        return super().drop_duplicates(subset=subset, keep=keep, inplace=inplace)
 
     @property
     def dtypes(self):
@@ -348,7 +346,7 @@ class _DataFrame(BasePandasDataset):
 
     def apply(self, func, axis=0, raw=False, result_type=None, args=(), **kwds):
         axis = self._get_axis_number(axis)
-        query_compiler = super(DataFrame, self).apply(
+        query_compiler = super().apply(
             func, axis=axis, raw=raw, result_type=result_type, args=args, **kwds
         )
         if not isinstance(query_compiler, type(self._query_compiler)):
@@ -605,9 +603,7 @@ class _DataFrame(BasePandasDataset):
         )
 
     def combine(self, other, func, fill_value=None, overwrite=True):
-        return super(DataFrame, self).combine(
-            other, func, fill_value=fill_value, overwrite=overwrite
-        )
+        return super().combine(other, func, fill_value=fill_value, overwrite=overwrite)
 
     def corr(self, method="pearson", min_periods=1):
         return self._default_to_pandas(
@@ -1408,7 +1404,7 @@ class _DataFrame(BasePandasDataset):
             )
             index_value = self.index.memory_usage(deep=deep)
             return Series(index_value, index=["Index"]).append(result)
-        return super(DataFrame, self).memory_usage(index=index, deep=deep)
+        return super().memory_usage(index=index, deep=deep)
 
     def merge(
         self,
@@ -1757,7 +1753,7 @@ class _DataFrame(BasePandasDataset):
                     **kwargs,
                 )
             )
-        return super(DataFrame, self).prod(
+        return super().prod(
             axis=axis,
             skipna=skipna,
             level=level,
@@ -2071,7 +2067,7 @@ class _DataFrame(BasePandasDataset):
             return Series(
                 [np.nan] * len(new_index), index=new_index, dtype=np.dtype("object")
             )
-        return super(DataFrame, self).sum(
+        return super().sum(
             axis=axis,
             skipna=skipna,
             level=level,
@@ -2196,7 +2192,7 @@ class _DataFrame(BasePandasDataset):
         )
 
     def to_period(self, freq=None, axis=0, copy=True):  # pragma: no cover
-        return super(DataFrame, self).to_period(freq=freq, axis=axis, copy=copy)
+        return super().to_period(freq=freq, axis=axis, copy=copy)
 
     def to_records(self, index=True, column_dtypes=None, index_dtypes=None):
         return self._default_to_pandas(
@@ -2232,9 +2228,7 @@ class _DataFrame(BasePandasDataset):
         )
 
     def to_timestamp(self, freq=None, how="start", axis=0, copy=True):
-        return super(DataFrame, self).to_timestamp(
-            freq=freq, how=how, axis=axis, copy=copy
-        )
+        return super().to_timestamp(freq=freq, how=how, axis=axis, copy=copy)
 
     def truediv(self, other, axis="columns", level=None, fill_value=None):
         return self._binary_op(
