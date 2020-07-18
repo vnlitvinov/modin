@@ -61,7 +61,7 @@ class WrappingConnection(rpyc.Connection):
         finally:
             got2 = time.time()
             msg, seq, args = brine.load(data)
-            sent = self.timings.pop(seq, 0)
+            sent = self.timings.pop(seq, got1)
             if msg == consts.MSG_REQUEST:
                 handler, args = args
                 str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
@@ -81,7 +81,8 @@ class WrappingConnection(rpyc.Connection):
     def _netref_factory(self, id_pack):
         id_name, cls_id, inst_id = id_pack
         id_name = str(id_name)
-        if id_name.startswith('modin.') and inst_id:
+        first = id_name.split('.', 1)[0]
+        if first in ('modin', 'numpy', 'pandas') and inst_id:
             try:
                 cached_cls = self._remote_cls_cache[(id_name, cls_id)]
             except KeyError:
