@@ -17,6 +17,7 @@ import types
 from rpyc.utils.classic import deliver
 import rpyc
 from rpyc.lib.compat import pickle
+from rpyc.lib import get_methods
 
 from rpyc.core import brine, consts, netref
 
@@ -97,7 +98,7 @@ class WrappingConnection(rpyc.Connection):
 
     def deliver(self, args, kw):
         """
-        More caching version of rpyc.classic.deliver()
+        More efficient version of rpyc.classic.deliver() - delivers to remote side in batch
         """
         pickled_args = [self.__wrap(arg) for arg in args]
         pickled_kw = [(k, self.__wrap(v)) for (k, v) in kw.items()]
@@ -113,6 +114,30 @@ class WrappingConnection(rpyc.Connection):
             delivered_kw[k] = next(remote) if pickled_v is not None else kw[k]
         
         return tuple(delivered_args), delivered_kw
+
+    def sync_request(self, handler, *args):  # serving
+        if handler == consts.HANDLE_INSPECT:
+            id_name = str(args[0][0])
+            if id_name.split('.', 1)[0] in ('modin', 'pandas', 'numpy'):
+                try:
+                    modobj = __import__(id_name)
+                    for subname in id_name.split('.')[1:]:
+                        modobj = getattr(modobj, subname)
+                except (ImportError, AttributeError):
+                    pass
+                else:
+                    return get_methods(netref.LOCAL_ATTRS, modobj)
+                modname, clsname = id_name.rsplit('.', 1)
+                try:
+                    modobj = __import__(modname)
+                    for subname in modname.split('.')[1:]:
+                        modobj = getattr(modobj, subname)
+                    clsobj = getattr(modobj, clsname)
+                except (ImportError, AttributeError):
+                    pass
+                else:
+                    return get_methods(netref.LOCAL_ATTRS, clsobj)
+        return super().sync_request(handler, *args)
 
     def _netref_factory(self, id_pack):
         id_name, cls_id, inst_id = id_pack
@@ -158,39 +183,28 @@ class WrappingConnection(rpyc.Connection):
         return wrapping_cls.from_remote_end(result)
 
     def _box(self, obj):
-        start = None if self.inside.box else time.time()
-        self.inside.box = True
-        try:
+        while True:
             try:
-                remote_obj = object.__getattribute__(obj, "__remote_end__")
+                obj = object.__getattribute__(obj, "__remote_end__")
             except AttributeError:
-                remote_obj = obj
-            boxed = super()._box(remote_obj)
-        finally:
-            if start is not None:
-                self.inside.box = False
-                str_args = str(boxed).replace("\r", "").replace("\n", "\tNEWLINE\t")
-                with self.logLock:
+                break
+        return super()._box(obj)
 
-                    with open('rpyc-trace.log', 'a') as out:
-                        out.write(f"_box:timing={time.time() - start}:args={str_args}\n")
-
-        return boxed
-
-    def _unbox(self, package):
-        start = None if self.inside.unbox else time.time()
-        self.inside.unbox = True
-        try:
-            return super()._unbox(package)
-        finally:
-            if start is not None:
-                self.inside.unbox = False
-                str_args = str(package).replace("\r", "").replace("\n", "\tNEWLINE\t")
-                with self.logLock:
-
-                    with open('rpyc-trace.log', 'a') as out:
-                        out.write(f"_unbox:timing={time.time() - start}:args={str_args}\n")
-
+    class _Logger:
+        def __init__(self, conn, logname):
+            self.conn = conn
+            self.logname = logname
+        def __enter__(self):
+            with self.conn.logLock:
+                self.conn.logfiles.add(self.logname)
+                with open(self.logname, 'a') as out:
+                    out.write(f'------------[new trace at {time.asctime()}]----------\n')
+            return self
+        def __exit__(self, *a, **kw):
+            with self.conn.logLock:
+                self.conn.logfiles.remove(self.logname)
+    def _logmore(self, logname):
+        return self._Logger(self, logname)
 
     def _init_deliver(self):
         self._remote_batch_loads = self.modules["modin.experimental.cloud.rpyc_proxy"]._batch_loads
