@@ -1704,6 +1704,7 @@ class _Series(BasePandasDataset):
             series.name = None
         return series
 
+_Series.__name__ = "Series"
 Series = make_wrapped_class(_Series, "Series", "make_series_wrapper")
 
 class DatetimeProperties(object):
