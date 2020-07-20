@@ -45,7 +45,9 @@ class WrappingConnection(rpyc.Connection):
         self.inside = threading.local()
         self.inside.box = False
         self.inside.unbox = False
-
+        with open('rpyc-trace.log', 'a') as out:
+            out.write(f'------------[new trace at {time.asctime()}]----------\n')
+        self.logfiles = set(['rpyc-trace.log'])
     def _send(self, msg, seq, args):
         str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
         if msg == consts.MSG_REQUEST:
@@ -54,10 +56,9 @@ class WrappingConnection(rpyc.Connection):
         else:
             str_handler = ""
         with self.logLock:
-            with open("rpyc-trace.log", "a") as out:
-                out.write(
-                    f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
-                )
+            for logfile in self.logfiles:
+                with open(logfile, 'a') as out:
+                    out.write(f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n")
         self.timings[seq] = time.time()
         return super()._send(msg, seq, args)
 
@@ -76,10 +77,9 @@ class WrappingConnection(rpyc.Connection):
                 str_handler = ""
             str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
             with self.logLock:
-                with open("rpyc-trace.log", "a") as out:
-                    out.write(
-                        f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
-                    )
+                for logfile in self.logfiles:
+                    with open(logfile, 'a') as out:
+                        out.write(f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n")
 
     def deliver(self, local_obj):
         """
@@ -154,10 +154,10 @@ class WrappingConnection(rpyc.Connection):
                 self.inside.box = False
                 str_args = str(boxed).replace("\r", "").replace("\n", "\tNEWLINE\t")
                 with self.logLock:
-                    with open("rpyc-trace.log", "a") as out:
-                        out.write(
-                            f"_box:timing={time.time() - start}:args={str_args}\n"
-                        )
+
+                    with open('rpyc-trace.log', 'a') as out:
+                        out.write(f"_box:timing={time.time() - start}:args={str_args}\n")
+
         return boxed
 
     def _unbox(self, package):
@@ -170,10 +170,10 @@ class WrappingConnection(rpyc.Connection):
                 self.inside.unbox = False
                 str_args = str(package).replace("\r", "").replace("\n", "\tNEWLINE\t")
                 with self.logLock:
-                    with open("rpyc-trace.log", "a") as out:
-                        out.write(
-                            f"_unbox:timing={time.time() - start}:args={str_args}\n"
-                        )
+
+                    with open('rpyc-trace.log', 'a') as out:
+                        out.write(f"_unbox:timing={time.time() - start}:args={str_args}\n")
+
 
     def _init_deliver(self):
         self._remote_pickle_loads = self.modules["rpyc.lib.compat"].pickle.loads
@@ -285,7 +285,7 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
     return Wrapped
 
 
-def _deliveringWrapper(origin_cls, methods, mixin=None, target_name=None):
+def _deliveringWrapper(origin_cls, methods=(), mixin=None, target_name=None):
     conn = get_connection()
     remote_cls = getattr(conn.modules[origin_cls.__module__], origin_cls.__name__)
 
@@ -370,3 +370,7 @@ def make_dataframe_groupby_wrapper():
         target_name="DataFrameGroupBy",
     )
     return DeliveringDataFrameGroupBy
+
+def make_series_wrapper():
+    from modin.pandas.series import _Series
+    return _deliveringWrapper(_Series, target_name="Series")
