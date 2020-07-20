@@ -229,7 +229,7 @@ class ExperimentalPandasOnCloudrayFactory(ExperimentalBaseFactory):
                     "modin.engines.ray.pandas_on_ray.io"
                 ].PandasOnRayIO
                 self.__reads = {
-                    name for name in self.__io_cls.__dict__ if name.startswith("read_")
+                    name for name in BaseIO.__dict__ if name.startswith("read_")
                 }
                 self.__wrappers = {}
 
@@ -240,8 +240,7 @@ class ExperimentalPandasOnCloudrayFactory(ExperimentalBaseFactory):
                     except KeyError:
 
                         def wrap(*a, _original=getattr(self.__io_cls, name), **kw):
-                            a = tuple(self.__conn.deliver(x) for x in a)
-                            kw = {k: self.__conn.deliver(v) for k, v in kw.items()}
+                            a, kw = self.__conn.deliver(a, kw)
                             return _original(*a, **kw)
 
                         self.__wrappers[name] = wrap
