@@ -42,6 +42,7 @@ class WrappingConnection(rpyc.Connection):
         super().__init__(*a, **kw)
         self._remote_batch_loads = None
         self._remote_cls_cache = {}
+        self._static_cache = {}
 
         self.logLock = threading.RLock()
         self.timings = {}
@@ -52,7 +53,8 @@ class WrappingConnection(rpyc.Connection):
             out.write(f'------------[new trace at {time.asctime()}]----------\n')
         self.logfiles = set(['rpyc-trace.log'])
     def _send(self, msg, seq, args):
-        str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
+        """tracing only"""
+        str_args = str(args).replace('\r','').replace('\n', '\tNEWLINE\t')
         if msg == consts.MSG_REQUEST:
             handler, _ = args
             str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
@@ -66,6 +68,7 @@ class WrappingConnection(rpyc.Connection):
         return super()._send(msg, seq, args)
 
     def _dispatch(self, data):
+        """tracing only"""
         got1 = time.time()
         try:
             return super()._dispatch(data)
@@ -137,6 +140,26 @@ class WrappingConnection(rpyc.Connection):
                     pass
                 else:
                     return get_methods(netref.LOCAL_ATTRS, clsobj)
+        elif handler in (consts.HANDLE_GETATTR, consts.HANDLE_STR):
+            if handler == consts.HANDLE_GETATTR:
+                obj, attr = args
+            else:
+                obj, attr = args[0], '__str__'
+            try:
+                obj_class = object.__getattribute__(obj, '__class__')
+            except AttributeError:
+                obj_class = None
+            if type(obj).__name__ in ('numpy',) or (getattr(obj_class, '__module__', None) in ('numpy',) and obj_class.__name__ in ('dtype',)):
+                try:
+                    cache = self._static_cache[obj.____id_pack__]
+                except KeyError:
+                    cache = self._static_cache[obj.____id_pack__] = {}
+                try:
+                    result = cache[(attr, handler)]
+                except KeyError:
+                    result = cache[(attr, handler)] = super().sync_request(handler, *args)
+                return result
+
         return super().sync_request(handler, *args)
 
     def _netref_factory(self, id_pack):
