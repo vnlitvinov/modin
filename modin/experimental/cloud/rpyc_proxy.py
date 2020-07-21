@@ -19,7 +19,7 @@ import rpyc
 from rpyc.lib.compat import pickle
 from rpyc.lib import get_methods
 
-from rpyc.core import brine, consts, netref
+from rpyc.core import brine, consts, netref, AsyncResult
 
 from . import get_connection
 from .meta_magic import _LOCAL_ATTRS, _WRAP_ATTRS, RemoteMeta, _KNOWN_DUALS
@@ -180,9 +180,32 @@ class WrappingConnection(rpyc.Connection):
                     result = cache[(attr, handler)]
                 except KeyError:
                     result = cache[(attr, handler)] = super().sync_request(handler, *args)
-                return result
+                return result                    
 
         return super().sync_request(handler, *args)
+
+    def async_request(self, handler, *args, **kw):
+        if handler == consts.HANDLE_DEL:
+            obj, refcount = args
+            try:
+                obj_class = object.__getattribute__(obj, '__class__')
+            except AttributeError:
+                obj_class = None
+            if type(obj).__name__ in ('numpy',) or (getattr(obj_class, '__module__', None) in ('numpy',) and obj_class.__name__ in ('dtype',)):
+                """
+                # we have this cached, but a deletion is requested, remove the from cache
+                self._static_cache.pop(obj.____id_pack__, None)
+                """
+                try:
+                    cache = self._static_cache[obj.____id_pack__]
+                except KeyError:
+                    pass
+                else:
+                    # object is cached by us, so ignore the request or remote end dies and cache is suddenly stale
+                    res = AsyncResult(self)
+                    res._is_ready = True
+                    return res
+        return super().async_request(handler, *args, **kw)
 
     def _netref_factory(self, id_pack):
         id_name, cls_id, inst_id = id_pack
@@ -429,6 +452,8 @@ def make_dataframe_wrapper():
     class ObtainingItems:
         def items(self):
             return conn.obtain_tuple(self.__remote_end__.items())
+        def iteritems(self):
+            return conn.obtain_tuple(self.__remote_end__.iteritems())
     ObtainingItems = _deliveringWrapper(Series, mixin=ObtainingItems)
 
     # TODO: make an obtaining wrapper for DF.dtypes.items()
