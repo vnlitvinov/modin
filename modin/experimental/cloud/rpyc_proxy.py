@@ -37,12 +37,18 @@ _msg_to_name = dict(_msg_to_name)
 def _batch_loads(items):
     return tuple(pickle.loads(item) for item in items)
 
+def _tuplize(arg):
+    '''turns any sequence or iterator into a flat tuple'''
+    return tuple(arg)
+
 class WrappingConnection(rpyc.Connection):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._remote_batch_loads = None
         self._remote_cls_cache = {}
         self._static_cache = {}
+        self._remote_dumps = None
+        self._remote_tuplize = None
 
         self.logLock = threading.RLock()
         self.timings = {}
@@ -117,6 +123,22 @@ class WrappingConnection(rpyc.Connection):
             delivered_kw[k] = next(remote) if pickled_v is not None else kw[k]
         
         return tuple(delivered_args), delivered_kw
+
+    def obtain(self, remote):
+        while True:
+            try:
+                remote = object.__getattribute__(remote, '__remote_end__')
+            except AttributeError:
+                break
+        return pickle.loads(self._remote_dumps(remote))
+
+    def obtain_tuple(self, remote):
+        while True:
+            try:
+                remote = object.__getattribute__(remote, '__remote_end__')
+            except AttributeError:
+                break
+        return self._remote_tuplize(remote)
 
     def sync_request(self, handler, *args):  # serving
         if handler == consts.HANDLE_INSPECT:
@@ -231,6 +253,8 @@ class WrappingConnection(rpyc.Connection):
 
     def _init_deliver(self):
         self._remote_batch_loads = self.modules["modin.experimental.cloud.rpyc_proxy"]._batch_loads
+        self._remote_dumps = self.modules["rpyc.lib.compat"].pickle.dumps
+        self._remote_tuplize = self.modules["modin.experimental.cloud.rpyc_proxy"]._tuplize
 
 
 class WrappingService(rpyc.ClassicService):
@@ -399,6 +423,22 @@ def _prepare_loc_mixin():
 
 def make_dataframe_wrapper():
     from modin.pandas.dataframe import _DataFrame
+    from modin.pandas.series import Series
+
+    conn = get_connection()
+    class ObtainingItems:
+        def items(self):
+            return conn.obtain_tuple(self.__remote_end__.items())
+    ObtainingItems = _deliveringWrapper(Series, mixin=ObtainingItems)
+
+    # TODO: make an obtaining wrapper for DF.dtypes.items()
+    @property
+    def dtypes(self):
+        remote_dtypes = self.__remote_end__.dtypes
+        return ObtainingItems(__remote_end__=remote_dtypes)
+
+    DataFrameOverrides = _prepare_loc_mixin()
+    DataFrameOverrides.dtypes = dtypes
 
     DeliveringDataFrame = _deliveringWrapper(
         _DataFrame,
