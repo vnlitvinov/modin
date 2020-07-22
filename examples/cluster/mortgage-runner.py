@@ -26,9 +26,6 @@ from mortgage.mortgage_pandas import etl_pandas
 
 test_cluster = create_cluster("aws", "aws_credentials", cluster_name="rayscale-test", region="eu-north-1", zone="eu-north-1b", image="ami-00e1e82d7d4ca80d3")
 with test_cluster:
-    conn = get_connection()
-    np = conn.modules["numpy"]
-    etl_pandas.__globals__["np"] = np
 
     parameters = {
         "data_file": "https://modin-datasets.s3.amazonaws.com/mortgage",
