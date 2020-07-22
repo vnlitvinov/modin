@@ -288,10 +288,16 @@ class WrappingService(rpyc.ClassicService):
         conn._init_deliver()
 
 
+def _in_empty_class():
+    class Empty:
+        pass
+    return frozenset(Empty.__dict__.keys())
+
+
 _PROXY_LOCAL_ATTRS = frozenset(["__name__", "__remote_end__"])
 _NO_OVERRIDE = (
 
-    _SPECIAL | _SPECIAL_ATTRS | frozenset(_WRAP_ATTRS) | rpyc.core.netref.DELETED_ATTRS | frozenset(["__getattribute__"])
+    _SPECIAL | _SPECIAL_ATTRS | frozenset(_WRAP_ATTRS) | rpyc.core.netref.DELETED_ATTRS | frozenset(["__getattribute__"]) | _in_empty_class()
 
 )
 
@@ -305,7 +311,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
             namespace = type.__prepare__(*args, **kw)
             namespace["__remote_methods__"] = {}
 
-            overridden = {name for (name, func) in override.__dict__.items() if getattr(object, name, None) != func}
+            # try computing overridden differently to allow subclassing one override from another
+            no_override = set(_NO_OVERRIDE)
+            for base in override.__mro__:
+                no_override |= {name for (name, func) in base.__dict__.items() if getattr(object, name, None) != func}
 
             for base in origin_cls.__mro__:
                 if base == object:
@@ -319,21 +328,17 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                 for name, entry in base.__dict__.items():
                     if (
                         name not in namespace
-                        and name not in overridden
-                        and name not in _NO_OVERRIDE
+                        and name not in no_override
                         and isinstance(entry, types.FunctionType)
                     ):
 
                         def method(_self, *_args, __method_name__=name, **_kw):
-                            # TODO: see if we can just use _self.__remote_methods__
-                            cache = object.__getattribute__(_self, "__remote_methods__")
-                            # cache = _self.__remote_methods__
                             try:
-                                remote = cache[__method_name__]
+                                remote = _self.__remote_methods__[__method_name__]
                             except KeyError:
                                 # use remote_cls.__getattr__ to force RPyC return us
                                 # a proxy for remote method call instead of its local wrapper
-                                cache[__method_name__] = remote = remote_cls.__getattr__(__method_name__)
+                                _self.__remote_methods__[__method_name__] = remote = remote_cls.__getattr__(__method_name__)
                             return remote(_self.__remote_end__, *_args, **_kw)
 
                         method.__name__ = name
@@ -456,14 +461,11 @@ def make_dataframe_wrapper():
             return conn.obtain_tuple(self.__remote_end__.iteritems())
     ObtainingItems = _deliveringWrapper(Series, mixin=ObtainingItems)
 
-    # TODO: make an obtaining wrapper for DF.dtypes.items()
-    @property
-    def dtypes(self):
-        remote_dtypes = self.__remote_end__.dtypes
-        return ObtainingItems(__remote_end__=remote_dtypes)
-
-    DataFrameOverrides = _prepare_loc_mixin()
-    DataFrameOverrides.dtypes = dtypes
+    class DataFrameOverrides(_prepare_loc_mixin()):
+        @property
+        def dtypes(self):
+            remote_dtypes = self.__remote_end__.dtypes
+            return ObtainingItems(__remote_end__=remote_dtypes)
 
     DeliveringDataFrame = _deliveringWrapper(
         _DataFrame,
