@@ -106,10 +106,13 @@ class Connection:
         from .rpyc_proxy import WrappingService
 
         try:
-            stream = rpyc.SocketStream.connect(host="127.0.0.1", port=self.rpyc_port, nodelay=True, keepalive=True)
-            self.__connection = rpyc.connect_stream(stream,
+            stream = rpyc.SocketStream.connect(
+                host="127.0.0.1", port=self.rpyc_port, nodelay=True, keepalive=True
+            )
+            self.__connection = rpyc.connect_stream(
+                stream,
                 WrappingService,
-                config={"sync_request_timeout": RPYC_REQUEST_TIMEOUT}
+                config={"sync_request_timeout": RPYC_REQUEST_TIMEOUT},
             )
         except (ConnectionRefusedError, EOFError):
             if self.proc.poll() is not None:

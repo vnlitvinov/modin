@@ -34,12 +34,15 @@ for name in dir(consts):
         _msg_to_name[category][getattr(consts, name)] = name
 _msg_to_name = dict(_msg_to_name)
 
+
 def _batch_loads(items):
     return tuple(pickle.loads(item) for item in items)
 
+
 def _tuplize(arg):
-    '''turns any sequence or iterator into a flat tuple'''
+    """turns any sequence or iterator into a flat tuple"""
     return tuple(arg)
+
 
 class WrappingConnection(rpyc.Connection):
     def __init__(self, *a, **kw):
@@ -55,12 +58,13 @@ class WrappingConnection(rpyc.Connection):
         self.inside = threading.local()
         self.inside.box = False
         self.inside.unbox = False
-        with open('rpyc-trace.log', 'a') as out:
-            out.write(f'------------[new trace at {time.asctime()}]----------\n')
-        self.logfiles = set(['rpyc-trace.log'])
+        with open("rpyc-trace.log", "a") as out:
+            out.write(f"------------[new trace at {time.asctime()}]----------\n")
+        self.logfiles = set(["rpyc-trace.log"])
+
     def _send(self, msg, seq, args):
         """tracing only"""
-        str_args = str(args).replace('\r','').replace('\n', '\tNEWLINE\t')
+        str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
         if msg == consts.MSG_REQUEST:
             handler, _ = args
             str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
@@ -68,8 +72,10 @@ class WrappingConnection(rpyc.Connection):
             str_handler = ""
         with self.logLock:
             for logfile in self.logfiles:
-                with open(logfile, 'a') as out:
-                    out.write(f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n")
+                with open(logfile, "a") as out:
+                    out.write(
+                        f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
+                    )
         self.timings[seq] = time.time()
         return super()._send(msg, seq, args)
 
@@ -90,14 +96,16 @@ class WrappingConnection(rpyc.Connection):
             str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
             with self.logLock:
                 for logfile in self.logfiles:
-                    with open(logfile, 'a') as out:
-                        out.write(f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n")
+                    with open(logfile, "a") as out:
+                        out.write(
+                            f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
+                        )
 
     def __wrap(self, local_obj):
         while True:
             # unwrap magic wrappers first
             try:
-                local_obj = object.__getattribute__(local_obj, '__remote_end__')
+                local_obj = object.__getattribute__(local_obj, "__remote_end__")
             except AttributeError:
                 break
         # do not pickle netrefs
@@ -112,22 +120,26 @@ class WrappingConnection(rpyc.Connection):
         pickled_args = [self.__wrap(arg) for arg in args]
         pickled_kw = [(k, self.__wrap(v)) for (k, v) in kw.items()]
 
-        pickled = [i for i in pickled_args if i is not None] + [v for (k, v) in pickled_kw if v is not None]
+        pickled = [i for i in pickled_args if i is not None] + [
+            v for (k, v) in pickled_kw if v is not None
+        ]
         remote = iter(self._remote_batch_loads(tuple(pickled)))
 
         delivered_args = []
         for local_arg, pickled_arg in zip(args, pickled_args):
-            delivered_args.append(next(remote) if pickled_arg is not None else local_arg)
+            delivered_args.append(
+                next(remote) if pickled_arg is not None else local_arg
+            )
         delivered_kw = {}
         for k, pickled_v in pickled_kw:
             delivered_kw[k] = next(remote) if pickled_v is not None else kw[k]
-        
+
         return tuple(delivered_args), delivered_kw
 
     def obtain(self, remote):
         while True:
             try:
-                remote = object.__getattribute__(remote, '__remote_end__')
+                remote = object.__getattribute__(remote, "__remote_end__")
             except AttributeError:
                 break
         return pickle.loads(self._remote_dumps(remote))
@@ -135,7 +147,7 @@ class WrappingConnection(rpyc.Connection):
     def obtain_tuple(self, remote):
         while True:
             try:
-                remote = object.__getattribute__(remote, '__remote_end__')
+                remote = object.__getattribute__(remote, "__remote_end__")
             except AttributeError:
                 break
         return self._remote_tuplize(remote)
@@ -143,19 +155,19 @@ class WrappingConnection(rpyc.Connection):
     def sync_request(self, handler, *args):  # serving
         if handler == consts.HANDLE_INSPECT:
             id_name = str(args[0][0])
-            if id_name.split('.', 1)[0] in ('modin', 'pandas', 'numpy'):
+            if id_name.split(".", 1)[0] in ("modin", "pandas", "numpy"):
                 try:
                     modobj = __import__(id_name)
-                    for subname in id_name.split('.')[1:]:
+                    for subname in id_name.split(".")[1:]:
                         modobj = getattr(modobj, subname)
                 except (ImportError, AttributeError):
                     pass
                 else:
                     return get_methods(netref.LOCAL_ATTRS, modobj)
-                modname, clsname = id_name.rsplit('.', 1)
+                modname, clsname = id_name.rsplit(".", 1)
                 try:
                     modobj = __import__(modname)
-                    for subname in modname.split('.')[1:]:
+                    for subname in modname.split(".")[1:]:
                         modobj = getattr(modobj, subname)
                     clsobj = getattr(modobj, clsname)
                 except (ImportError, AttributeError):
@@ -170,7 +182,7 @@ class WrappingConnection(rpyc.Connection):
                 obj = args[0]
                 key = handler
 
-            if str(obj.____id_pack__[0]) in {'numpy', 'numpy.dtype'}:
+            if str(obj.____id_pack__[0]) in {"numpy", "numpy.dtype"}:
                 cache = self._static_cache[obj.____id_pack__]
                 try:
                     result = cache[key]
@@ -178,20 +190,20 @@ class WrappingConnection(rpyc.Connection):
                     result = cache[key] = super().sync_request(handler, *args)
                     if handler == consts.HANDLE_GETATTR:
                         # save an entry in our cache telling that we get this attribute cached
-                        self._static_cache[result.____id_pack__]['__getattr__'] = True
-                return result                    
+                        self._static_cache[result.____id_pack__]["__getattr__"] = True
+                return result
 
         return super().sync_request(handler, *args)
 
     def async_request(self, handler, *args, **kw):
         if handler == consts.HANDLE_DEL:
             obj, _ = args
-            if str(obj.____id_pack__[0]) in {'numpy', 'numpy.dtype'}:
+            if str(obj.____id_pack__[0]) in {"numpy", "numpy.dtype"}:
                 if obj.____id_pack__ in self._static_cache:
                     # object is cached by us, so ignore the request or remote end dies and cache is suddenly stale;
                     # we shouldn't remove item from cache as it would reduce performance
                     res = AsyncResult(self)
-                    res._is_ready = True # simulate finished async request
+                    res._is_ready = True  # simulate finished async request
                     return res
         return super().async_request(handler, *args, **kw)
 
@@ -250,22 +262,31 @@ class WrappingConnection(rpyc.Connection):
         def __init__(self, conn, logname):
             self.conn = conn
             self.logname = logname
+
         def __enter__(self):
             with self.conn.logLock:
                 self.conn.logfiles.add(self.logname)
-                with open(self.logname, 'a') as out:
-                    out.write(f'------------[new trace at {time.asctime()}]----------\n')
+                with open(self.logname, "a") as out:
+                    out.write(
+                        f"------------[new trace at {time.asctime()}]----------\n"
+                    )
             return self
+
         def __exit__(self, *a, **kw):
             with self.conn.logLock:
                 self.conn.logfiles.remove(self.logname)
+
     def _logmore(self, logname):
         return self._Logger(self, logname)
 
     def _init_deliver(self):
-        self._remote_batch_loads = self.modules["modin.experimental.cloud.rpyc_proxy"]._batch_loads
+        self._remote_batch_loads = self.modules[
+            "modin.experimental.cloud.rpyc_proxy"
+        ]._batch_loads
         self._remote_dumps = self.modules["rpyc.lib.compat"].pickle.dumps
-        self._remote_tuplize = self.modules["modin.experimental.cloud.rpyc_proxy"]._tuplize
+        self._remote_tuplize = self.modules[
+            "modin.experimental.cloud.rpyc_proxy"
+        ]._tuplize
 
 
 class WrappingService(rpyc.ClassicService):
@@ -279,14 +300,18 @@ class WrappingService(rpyc.ClassicService):
 def _in_empty_class():
     class Empty:
         pass
+
     return frozenset(Empty.__dict__.keys())
 
 
 _PROXY_LOCAL_ATTRS = frozenset(["__name__", "__remote_end__"])
 _NO_OVERRIDE = (
-
-    _SPECIAL | _SPECIAL_ATTRS | frozenset(_WRAP_ATTRS) | rpyc.core.netref.DELETED_ATTRS | frozenset(["__getattribute__"]) | _in_empty_class()
-
+    _SPECIAL
+    | _SPECIAL_ATTRS
+    | frozenset(_WRAP_ATTRS)
+    | rpyc.core.netref.DELETED_ATTRS
+    | frozenset(["__getattribute__"])
+    | _in_empty_class()
 )
 
 
@@ -302,7 +327,11 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
             # try computing overridden differently to allow subclassing one override from another
             no_override = set(_NO_OVERRIDE)
             for base in override.__mro__:
-                no_override |= {name for (name, func) in base.__dict__.items() if getattr(object, name, None) != func}
+                no_override |= {
+                    name
+                    for (name, func) in base.__dict__.items()
+                    if getattr(object, name, None) != func
+                }
 
             for base in origin_cls.__mro__:
                 if base == object:
@@ -310,7 +339,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                 # try unwrapping a dual-nature class first
                 while True:
                     try:
-                        base = object.__getattribute__(object.__getattribute__(base, '__real_cls__'), '__wrapper_local__')
+                        base = object.__getattribute__(
+                            object.__getattribute__(base, "__real_cls__"),
+                            "__wrapper_local__",
+                        )
                     except AttributeError:
                         break
                 for name, entry in base.__dict__.items():
@@ -326,7 +358,9 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                             except KeyError:
                                 # use remote_cls.__getattr__ to force RPyC return us
                                 # a proxy for remote method call instead of its local wrapper
-                                _self.__remote_methods__[__method_name__] = remote = remote_cls.__getattr__(__method_name__)
+                                _self.__remote_methods__[
+                                    __method_name__
+                                ] = remote = remote_cls.__getattr__(__method_name__)
                             return remote(_self.__remote_end__, *_args, **_kw)
 
                         method.__name__ = name
@@ -401,7 +435,7 @@ def _deliveringWrapper(origin_cls, methods=(), mixin=None, target_name=None):
 
         def wrapper(self, *args, __remote_conn__=conn, __method_name__=method, **kw):
             args, kw = __remote_conn__.deliver(args, kw)
-            cache = object.__getattribute__(self, '__remote_methods__')
+            cache = object.__getattribute__(self, "__remote_methods__")
             try:
                 remote = cache[__method_name__]
             except KeyError:
@@ -442,11 +476,14 @@ def make_dataframe_wrapper():
     from modin.pandas.series import Series
 
     conn = get_connection()
+
     class ObtainingItems:
         def items(self):
             return conn.obtain_tuple(self.__remote_end__.items())
+
         def iteritems(self):
             return conn.obtain_tuple(self.__remote_end__.iteritems())
+
     ObtainingItems = _deliveringWrapper(Series, mixin=ObtainingItems)
 
     class DataFrameOverrides(_prepare_loc_mixin()):
@@ -486,6 +523,8 @@ def make_dataframe_groupby_wrapper():
     )
     return DeliveringDataFrameGroupBy
 
+
 def make_series_wrapper():
     from modin.pandas.series import _Series
+
     return _deliveringWrapper(_Series, target_name="Series")

@@ -255,7 +255,11 @@ def create(
     """
     if not isinstance(provider, Provider):
         provider = Provider(
-            name=provider, credentials_file=credentials, region=region, zone=zone, image=image
+            name=provider,
+            credentials_file=credentials,
+            region=region,
+            zone=zone,
+            image=image,
         )
     else:
         if any(p is not None for p in (credentials, region, zone, image)):
