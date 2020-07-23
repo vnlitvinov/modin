@@ -304,19 +304,21 @@ def _in_empty_class():
     return frozenset(Empty.__dict__.keys())
 
 
+_EMPTY_CLASS_ATTRS = _in_empty_class()
+
 _PROXY_LOCAL_ATTRS = frozenset(["__name__", "__remote_end__"])
 _NO_OVERRIDE = (
-    _SPECIAL
-    | _SPECIAL_ATTRS
+    _PROXY_LOCAL_ATTRS
+    | _LOCAL_ATTRS
     | frozenset(_WRAP_ATTRS)
     | rpyc.core.netref.DELETED_ATTRS
     | frozenset(["__getattribute__"])
-    | _in_empty_class()
+    | _EMPTY_CLASS_ATTRS
 )
 
 
 def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
-    class ProxyMeta(type):
+    class ProxyMeta(RemoteMeta):
         def __repr__(self):
             return f"<proxy for {origin_cls.__module__}.{origin_cls.__name__}:{cls_name or origin_cls.__name__}>"
 
@@ -327,11 +329,18 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
             # try computing overridden differently to allow subclassing one override from another
             no_override = set(_NO_OVERRIDE)
             for base in override.__mro__:
-                no_override |= {
-                    name
-                    for (name, func) in base.__dict__.items()
-                    if getattr(object, name, None) != func
-                }
+                if base == object:
+                    continue
+                for attr_name, attr_value in base.__dict__.items():
+                    if (
+                        attr_name not in namespace
+                        and attr_name not in no_override
+                        and getattr(object, attr_name, None) != attr_value
+                    ):
+                        namespace[
+                            attr_name
+                        ] = attr_value  # force-inherit an attribute manually
+                        no_override.add(attr_name)
 
             for base in origin_cls.__mro__:
                 if base == object:
@@ -370,7 +379,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
     class Wrapper(override, origin_cls, metaclass=ProxyMeta):
         __name__ = cls_name or origin_cls.__name__
         __wrapper_remote__ = remote_cls
-        __wrapper_local__ = Wrapper
+        __wrapper_local__ = None
+
+        def __new__(cls, *a, **kw):
+            return override.__new__(cls, *a, **kw)
 
         def __init__(self, *a, __remote_end__=None, **kw):
             if __remote_end__ is None:
@@ -410,6 +422,7 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                 if name not in _PROXY_LOCAL_ATTRS:
                     delattr(self.__remote_end__, name)
 
+    Wrapper.__wrapper_local__ = Wrapper
     return Wrapper
 
 
@@ -464,8 +477,7 @@ def _prepare_loc_mixin():
     return DeliveringMixin
 
 
-def make_dataframe_wrapper():
-    from modin.pandas.dataframe import _DataFrame
+def make_dataframe_wrapper(DataFrame):
     from modin.pandas.series import Series
 
     conn = get_connection()
@@ -486,19 +498,17 @@ def make_dataframe_wrapper():
             return ObtainingItems(__remote_end__=remote_dtypes)
 
     DeliveringDataFrame = _deliveringWrapper(
-        _DataFrame,
+        DataFrame,
         ["groupby", "agg", "aggregate", "__getitem__", "astype", "drop", "merge"],
-        _prepare_loc_mixin(),
+        DataFrameOverrides,
         "DataFrame",
     )
     return DeliveringDataFrame
 
 
-def make_base_dataset_wrapper():
-    from modin.pandas.base import _BasePandasDataset
-
+def make_base_dataset_wrapper(BasePandasDataset):
     DeliveringBasePandasDataset = _deliveringWrapper(
-        _BasePandasDataset,
+        BasePandasDataset,
         ["agg", "aggregate"],
         _prepare_loc_mixin(),
         "BasePandasDataset",
@@ -506,18 +516,12 @@ def make_base_dataset_wrapper():
     return DeliveringBasePandasDataset
 
 
-def make_dataframe_groupby_wrapper():
-    from modin.pandas.groupby import _DataFrameGroupBy
-
+def make_dataframe_groupby_wrapper(DataFrameGroupBy):
     DeliveringDataFrameGroupBy = _deliveringWrapper(
-        _DataFrameGroupBy,
-        ["agg", "aggregate", "apply"],
-        target_name="DataFrameGroupBy",
+        DataFrameGroupBy, ["agg", "aggregate", "apply"], target_name="DataFrameGroupBy",
     )
     return DeliveringDataFrameGroupBy
 
 
-def make_series_wrapper():
-    from modin.pandas.series import _Series
-
-    return _deliveringWrapper(_Series, target_name="Series")
+def make_series_wrapper(Series):
+    return _deliveringWrapper(Series, target_name="Series")
