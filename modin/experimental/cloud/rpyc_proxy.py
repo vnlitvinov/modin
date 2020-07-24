@@ -129,58 +129,7 @@ class WrappingConnection(rpyc.Connection):
                 except (ImportError, AttributeError):
                     pass
                 else:
-                    # we might have been asked to inspect a class we're preparing a wrapper for
-                    # _right now_! try unwrapping it first.
-                    def _getfullname(o):
-                        return (
-                            object.__getattribute__(o, "__module__"),
-                            object.__getattribute__(o, "__name__"),
-                        )
-
-                    while True:
-                        parent = object.__getattribute__(clsobj, "__mro__")[1]
-                        if _getfullname(clsobj) == _getfullname(parent):
-                            clsobj = parent
-                        else:
-                            break
-                    import inspect
-
-                    def my_get_methods(obj_attrs, obj):
-                        """introspects the given (local) object, returning a list of all of its
-                        methods (going up the MRO).
-
-                        :param obj: any local (not proxy) python object
-
-                        :returns: a list of ``(method name, docstring)`` tuples of all the methods
-                                of the given object
-                        """
-                        methods = {}
-                        attrs = {}
-                        if isinstance(obj, type):
-                            # don't forget the darn metaclass
-                            mros = list(reversed(type(obj).__mro__)) + list(
-                                reversed(obj.__mro__)
-                            )
-                        else:
-                            mros = reversed(type(obj).__mro__)
-                        for basecls in mros:
-                            attrs.update(basecls.__dict__)
-                        for name, attr in attrs.items():
-                            if name not in obj_attrs and hasattr(attr, "__call__"):
-                                try:
-                                    methods[name] = "<removed>"  # inspect.getdoc(attr)
-                                except RecursionError:
-                                    import traceback
-
-                                    print(name)
-                                    traceback.print_exc()
-                                    import pdb
-
-                                    pdb.set_trace()
-                                    raise
-                        return methods.items()
-
-                    return my_get_methods(netref.LOCAL_ATTRS, clsobj)
+                    return get_methods(netref.LOCAL_ATTRS, clsobj)
         elif handler in (consts.HANDLE_GETATTR, consts.HANDLE_STR, consts.HANDLE_HASH):
             if handler == consts.HANDLE_GETATTR:
                 obj, attr = args
