@@ -13,6 +13,7 @@
 
 import threading
 import types
+import os
 
 from rpyc.utils.classic import deliver
 import rpyc
@@ -43,6 +44,7 @@ def _tuplize(arg):
     """turns any sequence or iterator into a flat tuple"""
     return tuple(arg)
 
+_TRACE_RPYC = os.environ.get('MODIN_TRACE_RPYC', '').title() == 'True'
 
 class WrappingConnection(rpyc.Connection):
     def __init__(self, *a, **kw):
@@ -52,54 +54,6 @@ class WrappingConnection(rpyc.Connection):
         self._static_cache = collections.defaultdict(dict)
         self._remote_dumps = None
         self._remote_tuplize = None
-
-        self.logLock = threading.RLock()
-        self.timings = {}
-        self.inside = threading.local()
-        self.inside.box = False
-        self.inside.unbox = False
-        with open("rpyc-trace.log", "a") as out:
-            out.write(f"------------[new trace at {time.asctime()}]----------\n")
-        self.logfiles = set(["rpyc-trace.log"])
-
-    def _send(self, msg, seq, args):
-        """tracing only"""
-        str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
-        if msg == consts.MSG_REQUEST:
-            handler, _ = args
-            str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
-        else:
-            str_handler = ""
-        with self.logLock:
-            for logfile in self.logfiles:
-                with open(logfile, "a") as out:
-                    out.write(
-                        f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
-                    )
-        self.timings[seq] = time.time()
-        return super()._send(msg, seq, args)
-
-    def _dispatch(self, data):
-        """tracing only"""
-        got1 = time.time()
-        try:
-            return super()._dispatch(data)
-        finally:
-            got2 = time.time()
-            msg, seq, args = brine.load(data)
-            sent = self.timings.pop(seq, got1)
-            if msg == consts.MSG_REQUEST:
-                handler, args = args
-                str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
-            else:
-                str_handler = ""
-            str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
-            with self.logLock:
-                for logfile in self.logfiles:
-                    with open(logfile, "a") as out:
-                        out.write(
-                            f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
-                        )
 
     def __wrap(self, local_obj):
         while True:
@@ -299,6 +253,64 @@ class WrappingConnection(rpyc.Connection):
                 break
         return super()._box(obj)
 
+    def _init_deliver(self):
+        self._remote_batch_loads = self.modules[
+            "modin.experimental.cloud.rpyc_proxy"
+        ]._batch_loads
+        self._remote_dumps = self.modules["rpyc.lib.compat"].pickle.dumps
+        self._remote_tuplize = self.modules[
+            "modin.experimental.cloud.rpyc_proxy"
+        ]._tuplize
+
+class TracingWrappingConnection(WrappingConnection):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.logLock = threading.RLock()
+        self.timings = {}
+        self.inside = threading.local()
+        self.inside.box = False
+        self.inside.unbox = False
+        with open("rpyc-trace.log", "a") as out:
+            out.write(f"------------[new trace at {time.asctime()}]----------\n")
+        self.logfiles = set(["rpyc-trace.log"])
+
+    def _send(self, msg, seq, args):
+        str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
+        if msg == consts.MSG_REQUEST:
+            handler, _ = args
+            str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
+        else:
+            str_handler = ""
+        with self.logLock:
+            for logfile in self.logfiles:
+                with open(logfile, "a") as out:
+                    out.write(
+                        f"send:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
+                    )
+        self.timings[seq] = time.time()
+        return super()._send(msg, seq, args)
+
+    def _dispatch(self, data):
+        """tracing only"""
+        got1 = time.time()
+        try:
+            return super()._dispatch(data)
+        finally:
+            got2 = time.time()
+            msg, seq, args = brine.load(data)
+            sent = self.timings.pop(seq, got1)
+            if msg == consts.MSG_REQUEST:
+                handler, args = args
+                str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
+            else:
+                str_handler = ""
+            str_args = str(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
+            with self.logLock:
+                for logfile in self.logfiles:
+                    with open(logfile, "a") as out:
+                        out.write(
+                            f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
+                        )
     class _Logger:
         def __init__(self, conn, logname):
             self.conn = conn
@@ -320,18 +332,9 @@ class WrappingConnection(rpyc.Connection):
     def _logmore(self, logname):
         return self._Logger(self, logname)
 
-    def _init_deliver(self):
-        self._remote_batch_loads = self.modules[
-            "modin.experimental.cloud.rpyc_proxy"
-        ]._batch_loads
-        self._remote_dumps = self.modules["rpyc.lib.compat"].pickle.dumps
-        self._remote_tuplize = self.modules[
-            "modin.experimental.cloud.rpyc_proxy"
-        ]._tuplize
-
 
 class WrappingService(rpyc.ClassicService):
-    _protocol = WrappingConnection
+    _protocol = TracingWrappingConnection if _TRACE_RPYC else WrappingConnection
 
     def on_connect(self, conn):
         super().on_connect(conn)
