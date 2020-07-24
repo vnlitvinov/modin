@@ -22,7 +22,7 @@ from rpyc.lib import get_methods
 from rpyc.core import brine, consts, netref, AsyncResult
 
 from . import get_connection
-from .meta_magic import _LOCAL_ATTRS, _WRAP_ATTRS, RemoteMeta, _KNOWN_DUALS
+from .meta_magic import _LOCAL_ATTRS, RemoteMeta, _KNOWN_DUALS
 
 import collections
 import time
@@ -173,7 +173,48 @@ class WrappingConnection(rpyc.Connection):
                 except (ImportError, AttributeError):
                     pass
                 else:
-                    return get_methods(netref.LOCAL_ATTRS, clsobj)
+                    # we might have been asked to inspect a class we're preparing a wrapper for
+                    # _right now_! try unwrapping it first.
+                    def _getfullname(o):
+                        return object.__getattribute__(o, '__module__'), object.__getattribute__(o, '__name__')
+                    while True:
+                        parent = object.__getattribute__(clsobj, '__mro__')[1]
+                        if _getfullname(clsobj) == _getfullname(parent):
+                            clsobj = parent
+                        else:
+                            break
+                    import inspect
+                    def my_get_methods(obj_attrs, obj):
+                        """introspects the given (local) object, returning a list of all of its
+                        methods (going up the MRO).
+
+                        :param obj: any local (not proxy) python object
+
+                        :returns: a list of ``(method name, docstring)`` tuples of all the methods
+                                of the given object
+                        """
+                        methods = {}
+                        attrs = {}
+                        if isinstance(obj, type):
+                            # don't forget the darn metaclass
+                            mros = list(reversed(type(obj).__mro__)) + list(reversed(obj.__mro__))
+                        else:
+                            mros = reversed(type(obj).__mro__)
+                        for basecls in mros:
+                            attrs.update(basecls.__dict__)
+                        for name, attr in attrs.items():
+                            if name not in obj_attrs and hasattr(attr, "__call__"):
+                                try:
+                                    methods[name] = "<removed>" #inspect.getdoc(attr)
+                                except RecursionError:
+                                    import traceback
+                                    print(name)
+                                    traceback.print_exc()
+                                    import pdb;pdb.set_trace()
+                                    raise
+                        return methods.items()
+
+                    return my_get_methods(netref.LOCAL_ATTRS, clsobj)
         elif handler in (consts.HANDLE_GETATTR, consts.HANDLE_STR, consts.HANDLE_HASH):
             if handler == consts.HANDLE_GETATTR:
                 obj, attr = args
@@ -310,7 +351,6 @@ _PROXY_LOCAL_ATTRS = frozenset(["__name__", "__remote_end__"])
 _NO_OVERRIDE = (
     _PROXY_LOCAL_ATTRS
     | _LOCAL_ATTRS
-    | frozenset(_WRAP_ATTRS)
     | rpyc.core.netref.DELETED_ATTRS
     | frozenset(["__getattribute__"])
     | _EMPTY_CLASS_ATTRS
@@ -348,12 +388,12 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                 # try unwrapping a dual-nature class first
                 while True:
                     try:
-                        base = object.__getattribute__(
-                            object.__getattribute__(base, "__real_cls__"),
-                            "__wrapper_local__",
-                        )
+                        sub_base = object.__getattribute__(base, "__real_cls__")
                     except AttributeError:
                         break
+                    if sub_base is base:
+                        break
+                    base = sub_base
                 for name, entry in base.__dict__.items():
                     if (
                         name not in namespace
@@ -379,10 +419,9 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
     class Wrapper(override, origin_cls, metaclass=ProxyMeta):
         __name__ = cls_name or origin_cls.__name__
         __wrapper_remote__ = remote_cls
-        __wrapper_local__ = None
 
         def __new__(cls, *a, **kw):
-            return override.__new__(cls, *a, **kw)
+            return override.__new__(cls)#, *a, **kw)
 
         def __init__(self, *a, __remote_end__=None, **kw):
             if __remote_end__ is None:
@@ -401,12 +440,53 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
         def from_remote_end(cls, remote_inst):
             return cls(__remote_end__=remote_inst)
 
-        def __getattr__(self, name):
+        def __getattribute__(self, name):
             """
-            Any attributes not currently known to Wrapper (i.e. not defined here
-            or in override class) will be retrieved from the remote end
+            Implement "default" resolution order to override whatever __getattribute__
+            a parent being wrapped may have defined, but only look up on own __dict__
+            without looking into ancestors' ones, because we copy them in __prepare__.
+
+            Effectively, any attributes not currently known to Wrapper (i.e. not defined here
+            or in override class) will be retrieved from the remote end.
+
+            Algorithm (mimicking default Python behaviour):
+            1) check if type(self).__dict__[name] exists and is a get/set data descriptor
+            2) check if self.__dict__[name] exists
+            3) check if type(self).__dict__[name] is a non-data descriptor
+            4) check if type(self).__dict__[name] exists
+            5) pass through to remote end
             """
-            return getattr(self.__remote_end__, name)
+            dct = object.__getattribute__(self, '__dict__')
+            if name == '__dict__':
+                return dct
+            cls_dct = object.__getattribute__(type(self), '__dict__')
+            try:
+                cls_attr, has_cls_attr = cls_dct[name], True
+            except KeyError:
+                has_cls_attr = False
+            else:
+                oget = None
+                try:
+                    oget = object.__getattribute__(cls_attr, '__get__')
+                    object.__getattribute__(cls_attr, '__set__')
+                except AttributeError:
+                    pass # not a get/set data descriptor, go next
+                else:
+                    return oget(self, type(self))
+            # type(self).name is not a get/set data descriptor
+            try:
+                return dct[name]
+            except KeyError:
+                # instance doesn't have an attribute
+                if has_cls_attr:
+                    # type(self) has this attribute, but it's not a get/set descriptor
+                    if oget:
+                        # this attribute is a get data descriptor
+                        return oget(self, type(self))
+                    return cls_attr # not a data descriptor whatsoever
+
+            # this instance/class does not have this attribute, pass it through to remote end
+            return getattr(dct['__remote_end__'], name)
 
         if override.__setattr__ == object.__setattr__:
             # no custom attribute setting, define our own relaying to remote end
@@ -422,7 +502,6 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                 if name not in _PROXY_LOCAL_ATTRS:
                     delattr(self.__remote_end__, name)
 
-    Wrapper.__wrapper_local__ = Wrapper
     return Wrapper
 
 
