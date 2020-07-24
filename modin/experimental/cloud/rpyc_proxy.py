@@ -44,7 +44,9 @@ def _tuplize(arg):
     """turns any sequence or iterator into a flat tuple"""
     return tuple(arg)
 
-_TRACE_RPYC = os.environ.get('MODIN_TRACE_RPYC', '').title() == 'True'
+
+_TRACE_RPYC = os.environ.get("MODIN_TRACE_RPYC", "").title() == "True"
+
 
 class WrappingConnection(rpyc.Connection):
     def __init__(self, *a, **kw):
@@ -130,14 +132,19 @@ class WrappingConnection(rpyc.Connection):
                     # we might have been asked to inspect a class we're preparing a wrapper for
                     # _right now_! try unwrapping it first.
                     def _getfullname(o):
-                        return object.__getattribute__(o, '__module__'), object.__getattribute__(o, '__name__')
+                        return (
+                            object.__getattribute__(o, "__module__"),
+                            object.__getattribute__(o, "__name__"),
+                        )
+
                     while True:
-                        parent = object.__getattribute__(clsobj, '__mro__')[1]
+                        parent = object.__getattribute__(clsobj, "__mro__")[1]
                         if _getfullname(clsobj) == _getfullname(parent):
                             clsobj = parent
                         else:
                             break
                     import inspect
+
                     def my_get_methods(obj_attrs, obj):
                         """introspects the given (local) object, returning a list of all of its
                         methods (going up the MRO).
@@ -151,7 +158,9 @@ class WrappingConnection(rpyc.Connection):
                         attrs = {}
                         if isinstance(obj, type):
                             # don't forget the darn metaclass
-                            mros = list(reversed(type(obj).__mro__)) + list(reversed(obj.__mro__))
+                            mros = list(reversed(type(obj).__mro__)) + list(
+                                reversed(obj.__mro__)
+                            )
                         else:
                             mros = reversed(type(obj).__mro__)
                         for basecls in mros:
@@ -159,12 +168,15 @@ class WrappingConnection(rpyc.Connection):
                         for name, attr in attrs.items():
                             if name not in obj_attrs and hasattr(attr, "__call__"):
                                 try:
-                                    methods[name] = "<removed>" #inspect.getdoc(attr)
+                                    methods[name] = "<removed>"  # inspect.getdoc(attr)
                                 except RecursionError:
                                     import traceback
+
                                     print(name)
                                     traceback.print_exc()
-                                    import pdb;pdb.set_trace()
+                                    import pdb
+
+                                    pdb.set_trace()
                                     raise
                         return methods.items()
 
@@ -262,6 +274,7 @@ class WrappingConnection(rpyc.Connection):
             "modin.experimental.cloud.rpyc_proxy"
         ]._tuplize
 
+
 class TracingWrappingConnection(WrappingConnection):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
@@ -281,7 +294,7 @@ class TracingWrappingConnection(WrappingConnection):
         if isinstance(args, netref.BaseNetref):
             return str(args.____id_pack__)
         return args
-    
+
     @classmethod
     def __to_text(cls, args):
         return str(cls.__stringify(args))
@@ -316,13 +329,16 @@ class TracingWrappingConnection(WrappingConnection):
                 str_handler = f":req={_msg_to_name['HANDLE'][handler]}"
             else:
                 str_handler = ""
-            str_args = self.__to_text(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
+            str_args = (
+                self.__to_text(args).replace("\r", "").replace("\n", "\tNEWLINE\t")
+            )
             with self.logLock:
                 for logfile in self.logfiles:
                     with open(logfile, "a") as out:
                         out.write(
                             f"recv:timing={got1 - sent}+{got2 - got1}:msg={_msg_to_name['MSG'][msg]}:seq={seq}{str_handler}:args={str_args}\n"
                         )
+
     class _Logger:
         def __init__(self, conn, logname):
             self.conn = conn
@@ -436,7 +452,7 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
         __wrapper_remote__ = remote_cls
 
         def __new__(cls, *a, **kw):
-            return override.__new__(cls)#, *a, **kw)
+            return override.__new__(cls)  # , *a, **kw)
 
         def __init__(self, *a, __remote_end__=None, **kw):
             if __remote_end__ is None:
@@ -471,10 +487,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
             4) check if type(self).__dict__[name] exists
             5) pass through to remote end
             """
-            dct = object.__getattribute__(self, '__dict__')
-            if name == '__dict__':
+            dct = object.__getattribute__(self, "__dict__")
+            if name == "__dict__":
                 return dct
-            cls_dct = object.__getattribute__(type(self), '__dict__')
+            cls_dct = object.__getattribute__(type(self), "__dict__")
             try:
                 cls_attr, has_cls_attr = cls_dct[name], True
             except KeyError:
@@ -482,10 +498,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
             else:
                 oget = None
                 try:
-                    oget = object.__getattribute__(cls_attr, '__get__')
-                    object.__getattribute__(cls_attr, '__set__')
+                    oget = object.__getattribute__(cls_attr, "__get__")
+                    object.__getattribute__(cls_attr, "__set__")
                 except AttributeError:
-                    pass # not a get/set data descriptor, go next
+                    pass  # not a get/set data descriptor, go next
                 else:
                     return oget(self, type(self))
             # type(self).name is not a get/set data descriptor
@@ -498,10 +514,10 @@ def make_proxy_cls(remote_cls, origin_cls, override, cls_name=None):
                     if oget:
                         # this attribute is a get data descriptor
                         return oget(self, type(self))
-                    return cls_attr # not a data descriptor whatsoever
+                    return cls_attr  # not a data descriptor whatsoever
 
             # this instance/class does not have this attribute, pass it through to remote end
-            return getattr(dct['__remote_end__'], name)
+            return getattr(dct["__remote_end__"], name)
 
         if override.__setattr__ == object.__setattr__:
             # no custom attribute setting, define our own relaying to remote end
