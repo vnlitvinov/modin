@@ -220,7 +220,6 @@ class ExperimentalPandasOnCloudrayFactory(ExperimentalBaseFactory):
         # upon checking its isinstance() or issubclass()
         import modin.backends.pandas.query_compiler  # noqa: F401
         from modin.experimental.cloud import get_connection
-        from rpyc.utils.classic import deliver
 
         # import a numpy overrider if it wasn't already
         import modin.experimental.pandas.numpy_wrap  # noqa: F401

@@ -20,7 +20,6 @@ except ImportError:
     pass
 else:
     import types
-    import collections
     import copyreg
     from modin import execution_engine
     import modin
