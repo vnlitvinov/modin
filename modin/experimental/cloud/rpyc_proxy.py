@@ -396,7 +396,7 @@ def make_proxy_cls(
                         sub_base = object.__getattribute__(base, "__real_cls__")
                     except AttributeError:
                         break
-                    if sub_base is base:
+                    if sub_base is None or sub_base is base:
                         break
                     base = sub_base
                 for name, entry in base.__dict__.items():
@@ -445,7 +445,11 @@ def make_proxy_cls(
 
         @classmethod
         def from_remote_end(cls, remote_inst):
-            return cls(__remote_end__=remote_inst)
+            # call object.__new__ manually to bypass any overrides
+            # for __new__ that may exist in origin_cls
+            inst = object.__new__(cls)
+            inst.__init__(__remote_end__=remote_inst)
+            return inst
 
         def __getattribute__(self, name):
             """
@@ -633,7 +637,7 @@ def make_dataframe_wrapper(DataFrame):
 
     DeliveringDataFrame = _deliveringWrapper(
         DataFrame,
-        ["groupby", "agg", "aggregate", "__getitem__", "astype", "drop", "merge"],
+        ["groupby", "agg", "aggregate", "__getitem__", "astype", "drop", "merge", "equals"],
         DataFrameOverrides,
         "DataFrame",
     )
@@ -674,4 +678,7 @@ def make_series_wrapper(Series):
     are overridded here, so what it mostly does is it produces a wrapper class
     inherited from normal Series but wrapping all access to remote end transparently.
     """
-    return _deliveringWrapper(Series, target_name="Series")
+    return _deliveringWrapper(Series, ["equals"], target_name="Series")
+
+def make_pandas_base_index_wrapper(Index):
+    return _deliveringWrapper(Index, ["equals"], target_name="Index")
