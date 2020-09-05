@@ -14,6 +14,7 @@
 import sys
 import inspect
 import types
+import copyreg
 
 from modin import execution_engine
 from modin.data_management.factories import REMOTE_ENGINES
@@ -97,11 +98,36 @@ class RemoteMeta(type):
                     return res
                 return getter(None, self)
 
+def _patch_reduced(reduced, replacer, cast=tuple):
+    result = []
+    for obj in reduced:
+        if isinstance(obj, (list, tuple)):
+            result.append(_patch_reduced(obj, replacer, type(obj)))
+            continue
+        if not isinstance(obj, (type, types.FunctionType, types.BuiltinFunctionType)):
+            result.append(obj)
+            continue
+        result.append(replacer(obj))
+    return cast(result)
+
+def _make_reducer(local_cls, replacer):
+    def reducer(obj, real_reducer=local_cls.__reduce__):
+        # See details on __reduce__ protocol in Python docs:
+        # https://docs.python.org/3.6/library/pickle.html#object.__reduce__
+        reduced = real_reducer(obj)
+        if not isinstance(reduced, tuple):
+            return reduced
+        assert isinstance(
+            reduced[0],
+            (type, types.FunctionType, types.BuiltinFunctionType),
+        ), "Do not know how to support this reconstructor"
+
+        return _patch_reduced(reduced, replacer)
+    return reducer
 
 _KNOWN_DUALS = {}
 
-
-def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str):
+def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str, replace_original=True):
     """
     Replaces given local class in its module with a replacement class
     which has __new__ defined (a dual-nature class).
@@ -122,6 +148,9 @@ def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str):
         "rpyc_proxy" module in top-level, as it requires RPyC to be
         installed, and not all users of Modin (even in experimental mode)
         need remote context.
+    replace_original: bool
+        Whether to replace the original class in its module, or just register
+        the replacement so remote objects would be wrapped.
     """
     # get a copy of local_cls attributes' dict but skip _very_ special attributes,
     # because copying them to a different type leads to them not working.
@@ -133,6 +162,7 @@ def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str):
     }
     namespace["__real_cls__"] = None
     namespace["__new__"] = None
+
     # define a new class the same way original was defined but with replaced
     # metaclass and a few more attributes in namespace
     result = RemoteMeta(local_cls.__name__, local_cls.__bases__, namespace)
@@ -142,16 +172,30 @@ def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str):
         Define a __new__() with a __class__ that is closure-bound, needed for super() to work
         """
 
-        def __new__(cls, *a, **kw):
-            if cls is result and cls.__real_cls__ is not result:
-                return cls.__real_cls__(*a, **kw)
-            return super().__new__(cls)
+        local_new = local_cls.__dict__.get('__new__')
+        if local_new:
+            def __new__(cls, *a, **kw):
+                if cls is result and cls.__real_cls__ is not result:
+                    return cls.__real_cls__(*a, **kw)
+                return local_new(cls, *a, **kw)
+        else:
+            def __new__(cls, *a, **kw):
+                if cls is result and cls.__real_cls__ is not result:
+                    return cls.__real_cls__(*a, **kw)
+                return super().__new__(cls)
 
         __class__.__new__ = __new__
 
     make_new(result)
-    setattr(sys.modules[local_cls.__module__], local_cls.__name__, result)
+    if replace_original:
+        setattr(sys.modules[local_cls.__module__], local_cls.__name__, result)
     _KNOWN_DUALS[local_cls] = result
+
+    if '__reduce__' in local_cls.__dict__:
+        reducer = _make_reducer(local_cls, lambda obj: _KNOWN_DUALS.get(obj, obj))
+        result.__reduce__ = reducer
+        if replace_original:
+            copyreg.pickle(local_cls, reducer)
 
     def update_class(_):
         if execution_engine.get() in REMOTE_ENGINES:
