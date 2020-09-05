@@ -28,6 +28,7 @@ else:
     import copyreg
     from modin import execution_engine
     from modin.data_management.factories import REMOTE_ENGINES
+    from modin.experimental.cloud.meta_magic import _make_reducer
     import modin
     import pandas
     import os
@@ -43,6 +44,7 @@ else:
         os.path.dirname(mod.__file__) + os.sep for mod in _EXCLUDE_MODULES
     )
 
+    # TODO: intercept numpy submodules, too
     class InterceptedNumpy(types.ModuleType):
         """
         This class is intended to replace the "numpy" module as seen by outer world,
@@ -55,10 +57,12 @@ else:
         __own_attrs__ = set(["__own_attrs__"])
 
         __spec__ = real_numpy.__spec__
+        __name__ = real_numpy.__name__
         __current_numpy = real_numpy
         __prev_numpy = real_numpy
         __has_to_warn = not _CAUGHT_NUMPY
         __reducers = {}
+        __registered = set()
 
         def __init__(self):
             self.__own_attrs__ = set(type(self).__dict__.keys())
@@ -77,6 +81,7 @@ else:
                     "To intercept all of these please do 'import modin.experimental.pandas' as early as possible"
                 )
                 self.__has_to_warn = False
+            self.__registered = set()
 
         def __update_engine(self, _):
             if execution_engine.get() in REMOTE_ENGINES:
@@ -86,7 +91,18 @@ else:
             else:
                 self.__swap_numpy()
 
+        def __replacer(self, obj):
+            modnames = obj.__module__.split('.')
+            if modnames[0] != self.__name__:
+                return obj
+            modobj = self.__current_numpy
+            for modname in modnames[1:]:
+                modobj = getattr(modobj, modname)
+            return getattr(modobj, obj.__name__)
+
         def __make_reducer(self, name):
+            # FIXME: make lazy reducers which materialize upon first call
+            # FIXME: pre-define reducers for all numpy types upon numpy swap
             """
             Prepare a "reducer" routine - the one Pickle calls to serialize an instance of a class.
             Note that we need this to allow pickling a local numpy object in "remote numpy" context,
@@ -96,29 +112,7 @@ else:
             try:
                 reducer = self.__reducers[name]
             except KeyError:
-
-                def reducer(
-                    obj,
-                    real_obj=getattr(real_numpy, name),
-                    real_obj_reducer=getattr(real_numpy, name).__reduce__,
-                ):
-                    # See details on __reduce__ protocol in Python docs:
-                    # https://docs.python.org/3.6/library/pickle.html#object.__reduce__
-                    reduced = real_obj_reducer(obj)
-                    if not isinstance(reduced, tuple):
-                        return reduced
-                    assert isinstance(
-                        reduced[0],
-                        (type, types.FunctionType, types.BuiltinFunctionType),
-                    ), "Do not know how to support this reconstructor"
-
-                    modobj = self.__current_numpy
-                    for submod in reduced[0].__module__.split(".")[1:]:
-                        modobj = getattr(modobj, submod)
-                    reconstruct = getattr(modobj, reduced[0].__name__)
-                    # TODO: see if replacing all "real numpy" things in reduced[1:] is needed
-                    return (reconstruct,) + reduced[1:]
-
+                reducer = _make_reducer(getattr(real_numpy, name), self.__replacer)
                 self.__reducers[name] = reducer
             return reducer
 
@@ -144,8 +138,9 @@ else:
             # note that __getattr__ is not symmetric to __setattr__, as it is
             # only called when an attribute is not found by usual lookups
             obj = getattr(self.__get_numpy(), name)
-            if isinstance(obj, type):
+            if isinstance(obj, type) and name not in self.__registered:
                 # register a special callback for pickling
+                self.__registered.add(name)
                 copyreg.pickle(obj, self.__make_reducer(name))
             return obj
 
