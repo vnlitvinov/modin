@@ -92,7 +92,7 @@ else:
                 self.__swap_numpy()
 
         def __replacer(self, obj):
-            modnames = obj.__module__.split('.')
+            modnames = obj.__module__.split(".")
             if modnames[0] != self.__name__:
                 return obj
             modobj = self.__current_numpy
@@ -100,21 +100,30 @@ else:
                 modobj = getattr(modobj, modname)
             return getattr(modobj, obj.__name__)
 
+        def __type_callback(self, otype):
+            modnames = otype.__module__.split(".")
+            if len(modnames) == 1 and modnames[0] == self.__name__:
+                self.__make_reducer(otype.__name__)
+
         def __make_reducer(self, name):
-            # FIXME: make lazy reducers which materialize upon first call
-            # FIXME: pre-define reducers for all numpy types upon numpy swap
             """
             Prepare a "reducer" routine - the one Pickle calls to serialize an instance of a class.
             Note that we need this to allow pickling a local numpy object in "remote numpy" context,
             because without a custom reduce callback pickle complains that what it reduced has a
             different "numpy" class than original.
             """
+            if name in self.__registered:
+                return
             try:
                 reducer = self.__reducers[name]
             except KeyError:
-                reducer = _make_reducer(getattr(real_numpy, name), self.__replacer)
+                reducer = _make_reducer(
+                    getattr(real_numpy, name), self.__replacer, self.__type_callback
+                )
                 self.__reducers[name] = reducer
-            return reducer
+            # register a special callback for pickling
+            self.__registered.add(name)
+            copyreg.pickle(getattr(real_numpy, name), reducer)
 
         def __get_numpy(self):
             frame = sys._getframe()
@@ -138,10 +147,8 @@ else:
             # note that __getattr__ is not symmetric to __setattr__, as it is
             # only called when an attribute is not found by usual lookups
             obj = getattr(self.__get_numpy(), name)
-            if isinstance(obj, type) and name not in self.__registered:
-                # register a special callback for pickling
-                self.__registered.add(name)
-                copyreg.pickle(obj, self.__make_reducer(name))
+            if isinstance(obj, type):
+                self.__make_reducer(name)
             return obj
 
         def __setattr__(self, name, value):
@@ -157,5 +164,8 @@ else:
             # deletion of others to numpy being wrapped
             if name not in self.__own_attrs__:
                 delattr(self.__get_numpy(), name)
+
+        def __dir__(self):
+            return dir(self.__get_numpy())
 
     sys.modules["numpy"] = InterceptedNumpy()

@@ -98,19 +98,33 @@ class RemoteMeta(type):
                     return res
                 return getter(None, self)
 
-def _patch_reduced(reduced, replacer, cast=tuple):
+
+def __patch_reduced(reduced, replacer, cast, type_callback, known_types):
     result = []
     for obj in reduced:
         if isinstance(obj, (list, tuple)):
-            result.append(_patch_reduced(obj, replacer, type(obj)))
+            result.append(
+                __patch_reduced(obj, replacer, type(obj), type_callback, known_types)
+            )
             continue
         if not isinstance(obj, (type, types.FunctionType, types.BuiltinFunctionType)):
+            if type_callback and isinstance(obj, object):
+                otype = type(obj)
+                if (
+                    isinstance(
+                        otype, (type, types.FunctionType, types.BuiltinFunctionType)
+                    )
+                    and otype not in known_types
+                ):
+                    type_callback(otype)
+                    known_types.add(otype)
             result.append(obj)
             continue
         result.append(replacer(obj))
     return cast(result)
 
-def _make_reducer(local_cls, replacer):
+
+def _make_reducer(local_cls, replacer, type_callback=None):
     def reducer(obj, real_reducer=local_cls.__reduce__):
         # See details on __reduce__ protocol in Python docs:
         # https://docs.python.org/3.6/library/pickle.html#object.__reduce__
@@ -122,10 +136,13 @@ def _make_reducer(local_cls, replacer):
             (type, types.FunctionType, types.BuiltinFunctionType),
         ), "Do not know how to support this reconstructor"
 
-        return _patch_reduced(reduced, replacer)
+        return __patch_reduced(reduced, replacer, tuple, type_callback, set())
+
     return reducer
 
+
 _KNOWN_DUALS = {}
+
 
 def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str, replace_original=True):
     """
@@ -172,13 +189,16 @@ def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str, replace_original
         Define a __new__() with a __class__ that is closure-bound, needed for super() to work
         """
 
-        local_new = local_cls.__dict__.get('__new__')
+        local_new = local_cls.__dict__.get("__new__")
         if local_new:
+
             def __new__(cls, *a, **kw):
                 if cls is result and cls.__real_cls__ is not result:
                     return cls.__real_cls__(*a, **kw)
                 return local_new(cls, *a, **kw)
+
         else:
+
             def __new__(cls, *a, **kw):
                 if cls is result and cls.__real_cls__ is not result:
                     return cls.__real_cls__(*a, **kw)
@@ -191,7 +211,7 @@ def make_wrapped_class(local_cls: type, rpyc_wrapper_name: str, replace_original
         setattr(sys.modules[local_cls.__module__], local_cls.__name__, result)
     _KNOWN_DUALS[local_cls] = result
 
-    if '__reduce__' in local_cls.__dict__:
+    if "__reduce__" in local_cls.__dict__:
         reducer = _make_reducer(local_cls, lambda obj: _KNOWN_DUALS.get(obj, obj))
         result.__reduce__ = reducer
         if replace_original:

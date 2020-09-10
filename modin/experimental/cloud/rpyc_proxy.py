@@ -637,7 +637,16 @@ def make_dataframe_wrapper(DataFrame):
 
     DeliveringDataFrame = _deliveringWrapper(
         DataFrame,
-        ["groupby", "agg", "aggregate", "__getitem__", "astype", "drop", "merge", "equals"],
+        [
+            "groupby",
+            "agg",
+            "aggregate",
+            "__getitem__",
+            "astype",
+            "drop",
+            "merge",
+            "equals",
+        ],
         DataFrameOverrides,
         "DataFrame",
     )
@@ -679,6 +688,7 @@ def make_series_wrapper(Series):
     inherited from normal Series but wrapping all access to remote end transparently.
     """
     return _deliveringWrapper(Series, ["equals"], target_name="Series")
+
 
 def make_pandas_base_index_wrapper(Index):
     return _deliveringWrapper(Index, ["equals"], target_name="Index")

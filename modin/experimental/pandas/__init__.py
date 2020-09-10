@@ -22,12 +22,18 @@ from modin.pandas import *  # noqa F401, F403
 from .io_exp import read_sql  # noqa F401
 import warnings
 
+
 def _wrap_pandas():
     from modin.experimental.cloud.meta_magic import make_wrapped_class
     import pandas
 
     # cannot replace original or pandas.concat() breaks for frames which indices aren't *exactly* base.Index
-    make_wrapped_class(pandas.core.indexes.base.Index, 'make_pandas_base_index_wrapper', replace_original=False)
+    make_wrapped_class(
+        pandas.core.indexes.base.Index,
+        "make_pandas_base_index_wrapper",
+        replace_original=False,
+    )
+
 
 warnings.warn(
     "Thank you for using the Modin Experimental pandas API."
