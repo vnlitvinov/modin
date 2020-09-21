@@ -51,7 +51,8 @@ class Connection:
             [
                 main_python,
                 "-c",
-                "import os; from distutils.dist import Distribution; from distutils.command.install import install; cmd = install(Distribution()); cmd.finalize_options(); print(os.path.join(cmd.install_scripts, 'rpyc_classic.py'))",
+                "import modin.experimental.cloud.server as srv; import os; print(os.path.join(os.path.dirname(srv.__file__), 'rpyc-server.py'))",
+                # "import os; from distutils.dist import Distribution; from distutils.command.install import install; cmd = install(Distribution()); cmd.finalize_options(); print(os.path.join(cmd.install_scripts, 'rpyc_classic.py'))",
             ],
         )
         try:
