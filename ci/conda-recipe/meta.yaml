@@ -26,7 +26,7 @@ requirements:
     - dask >=2.12.0
     - distributed >=2.12.0
 # ray and omnisci deps
-    - ray ==0.8.7
+    - ray =0.8.7=py37h30cc6f7_0
     - pyarrow <0.17
     - omniscidbe4py
 # remote deps
