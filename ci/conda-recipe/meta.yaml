@@ -1,4 +1,5 @@
-{% set version = "0.8.0" %} # set to 0.8.1 when corresponding tag is made
+# set to 0.8.1 when corresponding tag is made
+{% set version = "0.8.0" %}
 
 package:
   name: modin
@@ -6,7 +7,7 @@ package:
 
 source:
   git_url: https://github.com/modin-project/modin.git
-  git_rev: {{ version }}
+  git_rev: "{{ version }}"
 
 build:
   number: 0
@@ -21,7 +22,7 @@ requirements:
     - python
     - pandas ==1.1.2
     - packaging
-#dask deps
+# dask deps
     - dask >=2.12.0
     - distributed >=2.12.0
 # ray and omnisci deps
@@ -45,7 +46,7 @@ about:
   license: Apache-2.0
   license_family: Apache
   license_file: LICENSE
-  summary: Modin: Make your pandas code run faster by changing one line of code
+  summary: "Modin: Make your pandas code run faster by changing one line of code"
   doc_url: https://modin.readthedocs.io/
   dev_url: https://github.com/modin-project/modin
   description: |
@@ -57,7 +58,7 @@ about:
     <br/><br/>
     EULA: <a href="https://github.com/modin-project/modin/blob/master/LICENSE" target="_blank">Apache-2.0</a>
     <br/><br/>
-    For more information see https://modin.readthedocs.io/
+    For more information see <a href="https://modin.readthedocs.io/">documentation</a>
 
 extra:
   recipe-maintainers:
