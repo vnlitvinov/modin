@@ -1,0 +1,68 @@
+{% set version = "0.8.1" %}
+
+package:
+  name: modin
+  version: "{{ version }}"
+
+source:
+  git_url: https://github.com/modin-project/modin.git
+  git_rev: "{{ version }}"
+  git_depth: 1
+
+build:
+  number: 2
+  script: '{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv '
+  noarch: python
+
+requirements:
+  host:
+    - pip
+    - python
+  run:
+    - python
+    - pandas ==1.1.2
+    - packaging
+# dask deps
+    - dask >=2.12.0
+    - distributed >=2.12.0
+    - libffi >=3.3 # new dask is hard-linked against libffi.so.7
+# ray and omnisci deps
+    - ray ==0.8.7
+    - pyarrow <0.17
+    - omniscidbe4py
+# remote deps
+    - rpyc ==4.1.5
+    - cloudpickle ==1.4.1
+    - boto3
+
+test:
+  import:
+    - modin
+    - modin.experimental.pandas
+  commands:
+    - python run_test.py
+
+about:
+  home: https://github.com/modin-project/modin
+  license: Apache-2.0
+  license_family: Apache
+  license_file: LICENSE
+  summary: "Modin: Make your pandas code run faster by changing one line of code"
+  doc_url: https://modin.readthedocs.io/
+  dev_url: https://github.com/modin-project/modin
+  description: |
+    <strong>LEGAL NOTICE: Use of this software package is subject to the
+    software license agreement (as set forth above, in the license section of
+    the installed Conda package and/or the README file) and all notices,
+    disclaimers or license terms for third party or open source software
+    included in or with the software.</strong>
+    <br/><br/>
+    EULA: <a href="https://github.com/modin-project/modin/blob/master/LICENSE" target="_blank">Apache-2.0</a>
+    <br/><br/>
+    For more information see <a href="https://modin.readthedocs.io/">documentation</a>
+
+extra:
+  recipe-maintainers:
+    - devin-petersohn
+    - h-vetinari
+    - vnlitvinov
