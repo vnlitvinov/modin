@@ -27,7 +27,7 @@ requirements:
     - distributed >=2.12.0
     - libffi >=3.3 # new dask is hard-linked against libffi.so.7
 # ray and omnisci deps
-    - ray =0.8.7=py37h30cc6f7_0
+    - ray ==0.8.7
     - pyarrow <0.17
     - omniscidbe4py
 # remote deps
