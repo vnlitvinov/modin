@@ -7,7 +7,6 @@ package:
 source:
   git_url: https://github.com/modin-project/modin.git
   git_rev: "{{ version }}"
-  git_depth: 1
 
 build:
   number: 2
