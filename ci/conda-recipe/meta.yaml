@@ -1,4 +1,4 @@
-{% set version = "0.8.1" %}
+{% set version = "0.8.2" %}
 
 package:
   name: modin
@@ -9,7 +9,7 @@ source:
   git_rev: "{{ version }}"
 
 build:
-  number: 3
+  number: 0
   script: '{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv '
   noarch: python
 
@@ -25,8 +25,8 @@ requirements:
     - dask >=2.12.0
     - distributed >=2.12.0
 # ray and omnisci deps
-    - ray ==0.8.7
-    - pyarrow <0.17
+    - ray =1.0
+    - pyarrow =1.0
     - omniscidbe4py
 # remote deps
     - rpyc ==4.1.5
