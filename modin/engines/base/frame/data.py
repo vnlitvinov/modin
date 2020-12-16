@@ -549,7 +549,7 @@ class BasePandasFrame(object):
                 new_index = self.index[row_numeric_idx]
             else:
                 new_row_lengths = [len(idx) for _, idx in row_partitions_list.items()]
-                new_index = self.index[sorted(row_numeric_idx)]
+                new_index = self.index[row_numeric_idx]
         else:
             row_partitions_list = {
                 i: slice(None) for i in range(len(self._row_lengths))
@@ -586,9 +586,9 @@ class BasePandasFrame(object):
                     new_dtypes = None
             else:
                 new_col_widths = [len(idx) for _, idx in col_partitions_list.items()]
-                new_columns = self.columns[sorted(col_numeric_idx)]
+                new_columns = self.columns[col_numeric_idx]
                 if self._dtypes is not None:
-                    new_dtypes = self.dtypes.iloc[sorted(col_numeric_idx)]
+                    new_dtypes = self.dtypes.iloc[col_numeric_idx]
                 else:
                     new_dtypes = None
         else:
@@ -645,17 +645,11 @@ class BasePandasFrame(object):
         # to all others, then recreate that order by mapping the new order values from
         # the old. This information is sent to `reorder_labels`.
         if row_numeric_idx is not None:
-            row_order_mapping = dict(
-                zip(sorted(row_numeric_idx), range(len(row_numeric_idx)))
-            )
-            new_row_order = [row_order_mapping[idx] for idx in row_numeric_idx]
+            new_row_order = range(len(row_numeric_idx))
         else:
             new_row_order = None
         if col_numeric_idx is not None:
-            col_order_mapping = dict(
-                zip(sorted(col_numeric_idx), range(len(col_numeric_idx)))
-            )
-            new_col_order = [col_order_mapping[idx] for idx in col_numeric_idx]
+            new_col_order = range(len(col_numeric_idx))
         else:
             new_col_order = None
         return intermediate.reorder_labels(
