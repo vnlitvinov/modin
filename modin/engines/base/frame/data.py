@@ -926,7 +926,10 @@ class BasePandasFrame(object):
             )
 
         # Convert negative indices to positive by wrapping around and modulo division
-        indices = np.mod(np.add(indices, len(self.axes[axis])), len(self.axes[axis]))
+        # Note: do not modulo already positive indices to be consistent with Pandas behaviour
+        indices = np.array(
+            [i if i >= 0 else max(0, len(self.axes[axis]) + i) for i in indices]
+        )
         partition_ids = np.digitize(indices, cumulative)
         # Make pairs of bucket id and indices falling into said bucket
         partition_ids_with_indices = [
