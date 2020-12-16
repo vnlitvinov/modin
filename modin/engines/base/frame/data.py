@@ -915,10 +915,6 @@ class BasePandasFrame(object):
                         )
                         dict_of_slices.update({last_part: slice(None, last_idx[0])})
                         return dict_of_slices
-        # Sort and convert negative indices to positive
-        indices = np.sort(
-            [i if i >= 0 else max(0, len(self.axes[axis]) + i) for i in indices]
-        )
         if axis == 0:
             bins = np.array(self._row_lengths)
         else:
@@ -935,37 +931,19 @@ class BasePandasFrame(object):
                 )
             )
 
+        # Convert negative indices to positive by wrapping around and modulo division
+        indices = np.mod(np.add(indices, len(self.axes[axis])), len(self.axes[axis]))
         partition_ids = np.digitize(indices, cumulative)
-        count_for_each_partition = np.array(
-            [(partition_ids == i).sum() for i in range(len(cumulative))]
-        ).cumsum()
-        # Compute the internal indices and pair those with the partition index.
-        # If the first partition has any values we need to return, compute those
-        # first to make the list comprehension easier. Otherwise, just append the
-        # rest of the values to an empty list.
-        if count_for_each_partition[0] > 0:
-            first_partition_indices = [
-                (0, internal(0, indices[slice(count_for_each_partition[0])]))
-            ]
-        else:
-            first_partition_indices = []
-        partition_ids_with_indices = first_partition_indices + [
-            (
-                i,
-                internal(
-                    i,
-                    indices[
-                        slice(
-                            count_for_each_partition[i - 1],
-                            count_for_each_partition[i],
-                        )
-                    ],
-                ),
-            )
-            for i in range(1, len(count_for_each_partition))
-            if count_for_each_partition[i] > count_for_each_partition[i - 1]
+        # Make pairs of bucket id and indices falling into said bucket
+        partition_ids_with_indices = [
+            (bucket_idx, indices[partition_ids == bucket_idx])
+            for bucket_idx in range(len(cumulative))
         ]
-        return OrderedDict(partition_ids_with_indices)
+        return OrderedDict(
+            (bucket_idx, internal(bucket_idx, bucket))
+            for (bucket_idx, bucket) in partition_ids_with_indices
+            if len(bucket) > 0
+        )
 
     @staticmethod
     def _join_index_objects(axis, indexes, how, sort):
